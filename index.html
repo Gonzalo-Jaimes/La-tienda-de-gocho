@@ -376,7 +376,8 @@
              VIEW 2: DEUDORES
              ========================================== -->
         <div id="view-debtors" class="view">
-            <div class="section-header" style="margin-bottom: 20px;"><p class="section-label">💸 Cuentas por Cobrar</p></div>
+            <div class="section-header" style="margin-bottom: 20px;"><p class="section-label">📒 Cuentas por Cobrar</p></div>
+            <input type="text" id="search-debtors" class="form-input" style="margin-bottom: 15px;" placeholder="🔍 Buscar deudor..." oninput="POS.renderDeudores()">
             <div id="debtors-list"></div>
         </div>
 
@@ -388,6 +389,7 @@
                 <p class="section-label">📦 Control de Inventario</p>
                 <button class="btn-small" onclick="POS.abrirModalNuevoProducto()">➕ Agregar</button>
             </div>
+            <input type="text" id="search-inventory" class="form-input" style="margin-bottom: 15px;" placeholder="🔍 Buscar producto..." oninput="POS.renderInventarioList()">
             <div id="inventory-list"></div>
         </div>
 
@@ -426,6 +428,7 @@
                 <button class="btn-small" style="flex: 1;" onclick="POS.switchHistorial('ventas')">Historial Ventas</button>
                 <button class="btn-small" style="flex: 1; background: transparent;" onclick="POS.switchHistorial('compras')" id="btn-hist-compras">Historial Compras</button>
             </div>
+            <input type="text" id="search-history" class="form-input" style="margin-bottom: 15px;" placeholder="🔍 Buscar transacción..." oninput="POS.renderHistorialVentas(); POS.renderHistorialCompras();">
 
             <div id="hist-ventas-container" class="history-section" style="margin-top: 0;">
                 <div class="history-list" id="hist-ventas-list"></div>
@@ -511,9 +514,9 @@
     <div class="modal-overlay" id="modal-debtor-detail">
         <div class="modal">
             <div class="modal__header"><h2 class="modal__title">📋 Detalle de Deuda</h2><button class="modal__close" onclick="POS.cerrarModales()">✕</button></div>
-            <p style="margin-bottom: 8px; color: var(--text-secondary); font-size: 0.9rem;">
-                Cliente: <strong id="debtor-detail-name" style="color: var(--text-primary);"></strong><br>
-                Total debe: <strong id="debtor-detail-total" style="color: var(--accent-danger);"></strong>
+            <p style="margin-bottom: 8px; color: var(--text-secondary); font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Cliente: <strong id="debtor-detail-name" style="color: var(--text-primary);"></strong> <button onclick="POS.editarNombreDeudor()" style="background:none;border:none;color:var(--accent-primary);font-size:1.1rem;cursor:pointer;padding:0 5px;" title="Editar Nombre">✏️</button><br>
+                Total debe: <strong id="debtor-detail-total" style="color: var(--accent-danger);"></strong></span>
             </p>
             <div class="debtor-detail-list" id="debtor-detail-list"></div>
             <button class="btn btn--form" style="margin-top: 16px;" onclick="POS.iniciarAbonoDesdeDetalle()">💰 Registrar Abono</button>
@@ -947,7 +950,8 @@
         //  DEUDORES & ABONOS
         // ============================================================
         function renderDeudores() {
-            const list = CLIENTES.filter(c => c.saldo_deuda > 0).sort((a,b) => b.saldo_deuda - a.saldo_deuda);
+            const term = (document.getElementById('search-debtors')?.value || '').toLowerCase();
+            const list = CLIENTES.filter(c => c.saldo_deuda > 0 && c.nombre.toLowerCase().includes(term)).sort((a,b) => b.saldo_deuda - a.saldo_deuda);
             document.getElementById('debtors-list').innerHTML = list.length === 0 
                 ? `<div style="text-align:center; color:var(--text-muted); padding: 40px 0;">🎉 Nadie debe nada.</div>`
                 : list.map(c => `<div class="debtor-card" onclick="POS.verDetalleDeudor('${c.id}')">
@@ -1069,9 +1073,30 @@
         // ============================================================
         //  INVENTARIO MODULE
         // ============================================================
+        async function editarNombreDeudor() {
+            if (!deudorActivo) return;
+            const nuevoNombre = prompt("Editar nombre del cliente:", deudorActivo.nombre);
+            if (!nuevoNombre || nuevoNombre.trim() === "" || nuevoNombre === deudorActivo.nombre) return;
+            
+            if (usandoDB) {
+                const { error } = await db.from('clientes').update({ nombre: nuevoNombre.trim() }).eq('id', deudorActivo.id);
+                if (error) { alert('Error al actualizar nombre: ' + error.message); return; }
+            }
+            
+            deudorActivo.nombre = nuevoNombre.trim();
+            document.getElementById('debtor-detail-name').textContent = deudorActivo.nombre;
+            
+            const c = CLIENTES.find(x => x.id === deudorActivo.id);
+            if (c) c.nombre = deudorActivo.nombre;
+            
+            renderDeudores();
+            showToast('✅ Nombre actualizado');
+        }
+
         function renderInventarioList() {
+            const term = (document.getElementById('search-inventory')?.value || '').toLowerCase();
             const list = document.getElementById('inventory-list'); list.innerHTML = '';
-            PRODUCTOS.forEach(p => {
+            PRODUCTOS.filter(p => p.nombre.toLowerCase().includes(term)).forEach(p => {
                 const stock = getEffectiveStock(p);
                 const isCombo = p.es_combo;
                 const costoReal = isCombo ? (p.componentes || []).reduce((sum, c) => { const comp = PRODUCTOS.find(x=>x.id===c.producto_id); return sum + (comp ? comp.costo_unidad * c.cantidad : 0); }, 0) : p.costo_unidad;
@@ -1105,12 +1130,15 @@
         }
 
         function renderHistorialVentas() {
+            const term = (document.getElementById('search-history')?.value || '').toLowerCase();
             const list = document.getElementById('hist-ventas-list');
-            if (VENTAS_HISTORIAL.length === 0) {
+            const filtradas = VENTAS_HISTORIAL.filter(v => v.cliente.toLowerCase().includes(term) || v.desc.toLowerCase().includes(term) || (v.metodo_pago && v.metodo_pago.toLowerCase().includes(term)));
+            
+            if (filtradas.length === 0) {
                 list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 30px 0;">No hay ventas registradas</div>';
                 return;
             }
-            list.innerHTML = VENTAS_HISTORIAL.map(v => {
+            list.innerHTML = filtradas.map(v => {
                 const metodoBadge = v.metodo_pago ? `<span class="hist-item__badge ${v.metodo_pago==='Efectivo'?'badge--efectivo':'badge--transferencia'}">${v.metodo_pago==='Efectivo'?'💵':'📱'} ${v.metodo_pago}</span>` : '';
                 return `
                 <div class="hist-item ${v.estado==='Pagado'?'hist-item--sale-pagado':'hist-item--sale-fiado'}">
@@ -1130,8 +1158,10 @@
         }
 
         function renderHistorialCompras() {
+            const term = (document.getElementById('search-history')?.value || '').toLowerCase();
             const list = document.getElementById('hist-compras-list');
-            list.innerHTML = COMPRAS_HISTORIAL.map(c => `
+            const filtradas = COMPRAS_HISTORIAL.filter(c => c.descripcion.toLowerCase().includes(term));
+            list.innerHTML = filtradas.map(c => `
                 <div class="hist-item hist-item--purchase">
                     <div class="hist-item__left">
                         <span class="hist-item__title">${c.descripcion}</span>
@@ -1186,7 +1216,8 @@
             modificarCantidad, crearCliente, seleccionarCliente, iniciarAbono, confirmarAbono,
             switchHistorial, confirmarMetodoPago,
             abrirEditarProducto, guardarEdicionProducto, eliminarProducto,
-            verDetalleDeudor, iniciarAbonoDesdeDetalle
+            verDetalleDeudor, iniciarAbonoDesdeDetalle, editarNombreDeudor,
+            renderDeudores, renderInventarioList, renderHistorialVentas, renderHistorialCompras
         };
     })();
     </script>
