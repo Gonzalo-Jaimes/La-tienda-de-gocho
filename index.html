@@ -965,19 +965,6 @@
             deudorActivo = cliente;
 
             const listEl = document.getElementById('debtor-detail-list');
-            listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Cargando...</div>';
-            document.getElementById('modal-debtor-detail').classList.add('active');
-
-            if (usandoDB) {
-                try {
-        async function verDetalleDeudor(id) {
-            const cliente = CLIENTES.find(c => c.id === id);
-            if (!cliente) return;
-            document.getElementById('debtor-detail-name').textContent = cliente.nombre;
-            document.getElementById('debtor-detail-total').textContent = formatCurrency(cliente.saldo_deuda);
-            deudorActivo = cliente;
-
-            const listEl = document.getElementById('debtor-detail-list');
             listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Calculando saldos...</div>';
             document.getElementById('modal-debtor-detail').classList.add('active');
 
