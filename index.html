@@ -349,6 +349,7 @@
                     <p class="section-label">📦 Productos</p>
                     <button class="btn-small" onclick="POS.abrirModalNuevoProducto()">➕ Nuevo</button>
                 </div>
+                <input type="text" id="search-pos-products" class="form-input" style="margin-bottom: 12px;" placeholder="🔍 Buscar producto para vender..." oninput="POS.renderProducts()">
                 <div class="product-grid" id="product-grid"></div>
             </section>
 
@@ -689,8 +690,9 @@
         function getEffectiveStock(prod) { return prod.es_combo ? getComboStock(prod) : prod.stock_actual; }
 
         function renderProducts() {
+            const term = (document.getElementById('search-pos-products')?.value || '').toLowerCase();
             const grid = document.getElementById('product-grid'); grid.innerHTML = '';
-            PRODUCTOS.forEach(prod => {
+            PRODUCTOS.filter(p => p.nombre.toLowerCase().includes(term)).forEach(prod => {
                 const stock = getEffectiveStock(prod), isOut = stock <= 0;
                 const card = document.createElement('div');
                 card.className = 'product-card' + (isOut ? ' out-of-stock' : '') + (prod.es_combo ? ' is-combo' : '');
@@ -1217,7 +1219,8 @@
             switchHistorial, confirmarMetodoPago,
             abrirEditarProducto, guardarEdicionProducto, eliminarProducto,
             verDetalleDeudor, iniciarAbonoDesdeDetalle, editarNombreDeudor,
-            renderDeudores, renderInventarioList, renderHistorialVentas, renderHistorialCompras
+            renderDeudores, renderInventarioList, renderHistorialVentas, renderHistorialCompras,
+            renderProducts
         };
     })();
     </script>
