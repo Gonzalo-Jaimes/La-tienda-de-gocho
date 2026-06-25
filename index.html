@@ -503,6 +503,7 @@
             <div class="form-group"><label class="form-label">Precio de Venta ($)</label><input type="number" id="edit-prod-price" class="form-input"></div>
             <div class="form-group"><label class="form-label">Stock Actual</label><input type="number" id="edit-prod-stock" class="form-input"></div>
             <button class="btn btn--form" onclick="POS.guardarEdicionProducto()">Guardar Cambios</button>
+            <button class="btn btn--form" style="background: rgba(255,118,117,0.1); color: var(--accent-danger); margin-top: 8px;" onclick="POS.eliminarProducto()">🗑️ Eliminar Producto</button>
         </div>
     </div>
 
@@ -769,6 +770,19 @@
             showToast('✅ Producto actualizado');
         }
 
+        async function eliminarProducto() {
+            const id = document.getElementById('edit-prod-id').value;
+            if (!confirm('¿Seguro que quieres eliminar este producto? Esto no se puede deshacer.')) return;
+
+            if (usandoDB) {
+                const { error } = await db.from('productos').delete().eq('id', id);
+                if (error) { alert('Error: No se puede eliminar si hay ventas registradas con este producto. ' + error.message); return; }
+            }
+            PRODUCTOS = PRODUCTOS.filter(x => x.id !== id);
+            cerrarModales(); renderProducts(); renderInventarioList();
+            showToast('🗑️ Producto eliminado');
+        }
+
         // ============================================================
         //  CARRITO Y VENTAS
         // ============================================================
@@ -956,42 +970,82 @@
 
             if (usandoDB) {
                 try {
+        async function verDetalleDeudor(id) {
+            const cliente = CLIENTES.find(c => c.id === id);
+            if (!cliente) return;
+            document.getElementById('debtor-detail-name').textContent = cliente.nombre;
+            document.getElementById('debtor-detail-total').textContent = formatCurrency(cliente.saldo_deuda);
+            deudorActivo = cliente;
+
+            const listEl = document.getElementById('debtor-detail-list');
+            listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Calculando saldos...</div>';
+            document.getElementById('modal-debtor-detail').classList.add('active');
+
+            if (usandoDB) {
+                try {
+                    // Solo necesitamos las ventas fiadas, ordenadas de la MÁS VIEJA a la MÁS NUEVA
                     const { data: ventas } = await db.from('ventas_cabecera').select(`
                         id, fecha, total_venta,
-                        ventas_detalle ( cantidad, precio_unitario, productos ( nombre ) )
-                    `).eq('cliente_id', id).eq('estado', 'Fiado').order('fecha', { ascending: false });
+                        ventas_detalle ( cantidad, productos ( nombre ) )
+                    `).eq('cliente_id', id).eq('estado', 'Fiado').order('fecha', { ascending: true });
 
-                    if (ventas && ventas.length > 0) {
-                        listEl.innerHTML = ventas.map(v => {
-                            const items = (v.ventas_detalle || []).map(d => `${d.productos ? d.productos.nombre : '?'} x${d.cantidad}`).join(', ');
-                            return `<div class="debtor-detail-item">
+                    const totalFiadosHist = (ventas || []).reduce((sum, v) => sum + Number(v.total_venta), 0);
+                    let totalPagado = totalFiadosHist - cliente.saldo_deuda;
+                    
+                    let itemsAMostrar = [];
+
+                    // Si totalPagado es negativo, significa que debe más de lo que hay registrado en ventas fiadas
+                    // Esto pasa por deudas iniciales del Excel que no tenían detalle de productos.
+                    if (totalPagado < 0) {
+                        itemsAMostrar.push({
+                            desc: 'Deuda anterior (Sin detallar)',
+                            fecha: null,
+                            saldo_restante: Math.abs(totalPagado)
+                        });
+                        totalPagado = 0; // Ya no hay abonos que descontar a las ventas
+                    }
+
+                    // Recorremos de la más vieja a la más nueva
+                    if (ventas) {
+                        for (const v of ventas) {
+                            const desc = (v.ventas_detalle || []).map(d => `${d.productos ? d.productos.nombre : '?'} x${d.cantidad}`).join(', ');
+                            
+                            if (totalPagado >= v.total_venta) {
+                                // Esta venta ya fue totalmente pagada con abonos, la ignoramos
+                                totalPagado -= v.total_venta;
+                            } else if (totalPagado > 0) {
+                                // Esta venta fue parcialmente pagada
+                                const saldoRestante = v.total_venta - totalPagado;
+                                itemsAMostrar.push({ desc: desc + ' (Abonado en parte)', fecha: v.fecha, saldo_restante: saldoRestante });
+                                totalPagado = 0;
+                            } else {
+                                // Esta venta está totalmente sin pagar
+                                itemsAMostrar.push({ desc: desc, fecha: v.fecha, saldo_restante: v.total_venta });
+                            }
+                        }
+                    }
+
+                    // Invertimos para mostrar lo más nuevo arriba
+                    itemsAMostrar.reverse();
+
+                    if (itemsAMostrar.length > 0) {
+                        listEl.innerHTML = itemsAMostrar.map(h => `
+                            <div class="debtor-detail-item">
                                 <div class="debtor-detail-item__left">
-                                    <span class="debtor-detail-item__prod">${items}</span>
-                                    <span class="debtor-detail-item__date">${formatDate(v.fecha)}</span>
+                                    <span class="debtor-detail-item__prod">${h.desc}</span>
+                                    ${h.fecha ? `<span class="debtor-detail-item__date">${formatDate(h.fecha)}</span>` : ''}
                                 </div>
-                                <span class="debtor-detail-item__val">${formatCurrency(v.total_venta)}</span>
-                            </div>`;
-                        }).join('');
+                                <span class="debtor-detail-item__val">${formatCurrency(h.saldo_restante)}</span>
+                            </div>
+                        `).join('');
                     } else {
-                        listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Sin compras fiadas registradas</div>';
+                        listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">La deuda parece ser 0</div>';
                     }
                 } catch (e) {
-                    listEl.innerHTML = '<div style="color:var(--accent-danger); padding: 20px;">Error al cargar: ' + e.message + '</div>';
+                    listEl.innerHTML = '<div style="color:var(--accent-danger); padding: 20px;">Error al calcular: ' + e.message + '</div>';
                 }
             } else {
-                // Modo local: buscar en VENTAS_HISTORIAL
-                const fiadas = VENTAS_HISTORIAL.filter(v => v.cliente === cliente.nombre && v.estado === 'Fiado');
-                if (fiadas.length > 0) {
-                    listEl.innerHTML = fiadas.map(v => `<div class="debtor-detail-item">
-                        <div class="debtor-detail-item__left">
-                            <span class="debtor-detail-item__prod">${v.desc}</span>
-                            <span class="debtor-detail-item__date">${formatDate(v.fecha)}</span>
-                        </div>
-                        <span class="debtor-detail-item__val">${formatCurrency(v.total)}</span>
-                    </div>`).join('');
-                } else {
-                    listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Sin detalle disponible</div>';
-                }
+                listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">Solo disponible con conexión a base de datos</div>';
             }
         }
 
@@ -1144,7 +1198,7 @@
             switchTab, abrirModalNuevoProducto, cerrarModales, guardarNuevoProducto,
             modificarCantidad, crearCliente, seleccionarCliente, iniciarAbono, confirmarAbono,
             switchHistorial, confirmarMetodoPago,
-            abrirEditarProducto, guardarEdicionProducto,
+            abrirEditarProducto, guardarEdicionProducto, eliminarProducto,
             verDetalleDeudor, iniciarAbonoDesdeDetalle
         };
     })();
