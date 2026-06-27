@@ -659,7 +659,7 @@
                         id, fecha, total_venta, estado, metodo_pago, vendedor,
                         clientes ( nombre ),
                         ventas_detalle ( cantidad, precio_unitario, productos ( nombre ) )
-                    `).order('fecha', { ascending: false }).limit(50);
+                    `).order('fecha', { ascending: false }).limit(500);
                     if (errVentas) throw errVentas;
 
                     if (ventas) {
