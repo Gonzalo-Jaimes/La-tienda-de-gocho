@@ -649,15 +649,17 @@
                     if (clis) CLIENTES = clis.map(c => ({ id: c.id, nombre: c.nombre, saldo_deuda: Number(c.saldo_deuda) }));
 
                     // Cargar compras_mercancia
-                    const { data: comprasDB } = await db.from('compras_mercancia').select('*').order('fecha', { ascending: true });
+                    const { data: comprasDB, error: errC } = await db.from('compras_mercancia').select('*').order('fecha', { ascending: true });
+                    if (errC) throw errC;
                     if (comprasDB) COMPRAS_HISTORIAL = comprasDB;
 
                     // Cargar historial de ventas (últimas 50)
-                    const { data: ventas } = await db.from('ventas_cabecera').select(`
+                    const { data: ventas, error: errVentas } = await db.from('ventas_cabecera').select(`
                         id, fecha, total_venta, estado, metodo_pago, vendedor,
                         clientes ( nombre ),
                         ventas_detalle ( cantidad, precio_unitario, productos ( nombre ) )
                     `).order('fecha', { ascending: false }).limit(50);
+                    if (errVentas) throw errVentas;
 
                     if (ventas) {
                         VENTAS_HISTORIAL = ventas.map(v => ({
