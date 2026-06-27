@@ -323,12 +323,21 @@
 <body>
     <div class="app" id="app">
         <!-- HEADER -->
-        <header class="header">
-            <div class="header__brand">
-                <div class="header__logo">🏪</div>
-                <h1 class="header__title">La Tienda del Gocho</h1>
+        <header class="header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <div class="header__brand">
+                    <div class="header__logo">🏪</div>
+                    <h1 class="header__title">La Tienda del Gocho</h1>
+                </div>
+                <p class="header__subtitle">Mini-ERP Universitario</p>
             </div>
-            <p class="header__subtitle">Mini-ERP Universitario</p>
+            <div style="text-align: right;">
+                <label style="font-size: 0.75rem; color: var(--text-secondary); display: block; margin-bottom: 4px;">Vendedor Activo</label>
+                <select id="vendedor-select" style="background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 4px 8px; font-weight: 600; cursor: pointer; outline: none;" onchange="localStorage.setItem('gocho_vendedor', this.value)">
+                    <option value="Gonzalo">Gonzalo</option>
+                    <option value="Nikolee">Nikolee</option>
+                </select>
+            </div>
         </header>
 
         <!-- ==========================================
@@ -398,7 +407,10 @@
              VIEW 4: RESUMEN FINANCIERO & HISTORIAL
              ========================================== -->
         <div id="view-summary" class="view">
-            <div class="section-header" style="margin-bottom: 16px;"><p class="section-label">📊 Dashboard Financiero</p></div>
+            <div class="section-header" style="margin-bottom: 16px;">
+                <p class="section-label">📊 Dashboard Financiero</p>
+                <button class="btn-small" onclick="POS.abrirModalCompra()">💸 Registrar Gasto</button>
+            </div>
             
             <div class="dashboard-grid">
                 <div class="dash-card dash-card--full">
@@ -524,6 +536,16 @@
         </div>
     </div>
 
+    <!-- MODAL: Registrar Gasto/Compra -->
+    <div class="modal-overlay" id="modal-compra">
+        <div class="modal">
+            <div class="modal__header"><h2 class="modal__title">💸 Registrar Gasto o Compra</h2><button class="modal__close" onclick="POS.cerrarModales()">✕</button></div>
+            <div class="form-group"><label class="form-label">Descripción</label><input type="text" id="compra-desc" class="form-input" placeholder="Ej. 4 Cajas de Chocolates"></div>
+            <div class="form-group"><label class="form-label">Monto ($)</label><input type="number" id="compra-monto" class="form-input" placeholder="Total gastado"></div>
+            <button class="btn btn--form" onclick="POS.guardarCompra()">Guardar Gasto</button>
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <!-- Supabase Client -->
@@ -554,17 +576,7 @@
 
         let PRODUCTOS = [];
         let CLIENTES = [];
-        let COMPRAS_HISTORIAL = [
-            { fecha: '2026-06-10T10:00:00Z', descripcion: 'Chocolates Lote 1 (4 cajas x12)', monto: 164000 },
-            { fecha: '2026-06-10T10:00:00Z', descripcion: 'Galletas (20 paquetes)', monto: 130000 },
-            { fecha: '2026-06-14T10:00:00Z', descripcion: 'Mayonesas (1 caja x12)', monto: 62500 },
-            { fecha: '2026-06-14T10:00:00Z', descripcion: 'Diablitos (1 caja x12)', monto: 80000 },
-            { fecha: '2026-06-18T10:00:00Z', descripcion: 'Chocolates Lote 2 (4 cajas x12)', monto: 144000 },
-            { fecha: '2026-06-23T10:00:00Z', descripcion: 'Palitos (1 caja x18)', monto: 20000 },
-            { fecha: '2026-06-23T10:00:00Z', descripcion: 'Otros gastos operativos', monto: 46000 },
-            { fecha: '2026-06-24T10:00:00Z', descripcion: 'Cajas de Chocolate Por Mayor (4 cajas)', monto: 144000 }
-        ];
-        let VENTAS_HISTORIAL = [];
+        let COMPRAS_HISTORIAL = [];
         let abonosRecibidosTotal = 0;
 
         let carrito = [];
@@ -636,9 +648,13 @@
                     const { data: clis } = await db.from('clientes').select('*').order('nombre');
                     if (clis) CLIENTES = clis.map(c => ({ id: c.id, nombre: c.nombre, saldo_deuda: Number(c.saldo_deuda) }));
 
+                    // Cargar compras_mercancia
+                    const { data: comprasDB } = await db.from('compras_mercancia').select('*').order('fecha', { ascending: true });
+                    if (comprasDB) COMPRAS_HISTORIAL = comprasDB;
+
                     // Cargar historial de ventas (últimas 50)
                     const { data: ventas } = await db.from('ventas_cabecera').select(`
-                        id, fecha, total_venta, estado, metodo_pago,
+                        id, fecha, total_venta, estado, metodo_pago, vendedor,
                         clientes ( nombre ),
                         ventas_detalle ( cantidad, precio_unitario, productos ( nombre ) )
                     `).order('fecha', { ascending: false }).limit(50);
@@ -648,6 +664,7 @@
                             id: v.id,
                             fecha: v.fecha,
                             cliente: v.clientes ? v.clientes.nombre : 'Consumidor Final',
+                            vendedor: v.vendedor || 'Gonzalo',
                             desc: (v.ventas_detalle || []).map(d => `${d.productos ? d.productos.nombre : '?'} x${d.cantidad}`).join(', '),
                             total: Number(v.total_venta),
                             estado: v.estado,
@@ -814,7 +831,10 @@
                 $e.style.display = 'none'; $s.style.display = 'block';
                 $i.innerHTML = carrito.map(i => `
                     <div class="cart-item">
-                        <div class="cart-item__info"><div class="cart-item__name">${i.nombre}</div><div class="cart-item__price">${formatCurrency(i.precio_unitario)}</div></div>
+                        <div class="cart-item__info">
+                            <div class="cart-item__name">${i.nombre} <button onclick="POS.editarItemCarrito('${i.producto_id}')" style="background:none;border:none;cursor:pointer;font-size:0.9rem;" title="Editar Precio/Cant">✏️</button></div>
+                            <div class="cart-item__price">${formatCurrency(i.precio_unitario)}</div>
+                        </div>
                         <div class="cart-item__controls"><button class="cart-item__btn" onclick="POS.modificarCantidad('${i.producto_id}', -1)">−</button><span class="cart-item__qty">${i.cantidad}</span><button class="cart-item__btn" onclick="POS.modificarCantidad('${i.producto_id}', 1)">+</button></div>
                         <span class="cart-item__subtotal">${formatCurrency(i.subtotal)}</span>
                     </div>`).join('');
@@ -881,7 +901,8 @@
                         cliente_id: clienteSeleccionado ? clienteSeleccionado.id : null,
                         total_venta: total,
                         estado: estado,
-                        metodo_pago: metodo_pago
+                        metodo_pago: metodo_pago,
+                        vendedor: localStorage.getItem('gocho_vendedor') || 'Gonzalo'
                     }).select().single();
                     if (errV) throw errV;
 
@@ -1214,6 +1235,40 @@
         }
         init();
 
+        function editarItemCarrito(prodId) {
+            const item = carrito.find(i => i.producto_id === prodId);
+            if (!item) return;
+            const nuevoPrecio = prompt(`Editar precio de ${item.nombre}:`, item.precio_unitario);
+            if (nuevoPrecio !== null && !isNaN(parseInt(nuevoPrecio))) {
+                item.precio_unitario = parseInt(nuevoPrecio);
+                item.subtotal = item.cantidad * item.precio_unitario;
+                renderCarrito();
+            }
+        }
+
+        function abrirModalCompra() {
+            document.getElementById('compra-desc').value = '';
+            document.getElementById('compra-monto').value = '';
+            document.getElementById('modal-compra').classList.add('active');
+        }
+
+        async function guardarCompra() {
+            const desc = document.getElementById('compra-desc').value.trim();
+            const monto = parseInt(document.getElementById('compra-monto').value);
+            if(!desc || isNaN(monto)) { alert('Campos inválidos'); return; }
+            if (usandoDB) {
+                const { data, error } = await db.from('compras_mercancia').insert({ descripcion: desc, monto: monto }).select().single();
+                if(error) { alert('Error: ' + error.message); return; }
+                COMPRAS_HISTORIAL.push(data);
+            } else {
+                COMPRAS_HISTORIAL.push({ fecha: new Date().toISOString(), descripcion: desc, monto: monto });
+            }
+            cerrarModales();
+            calcularResumen();
+            renderHistorialCompras();
+            showToast('💸 Gasto Registrado');
+        }
+
         window.POS = {
             switchTab, abrirModalNuevoProducto, cerrarModales, guardarNuevoProducto,
             modificarCantidad, crearCliente, seleccionarCliente, iniciarAbono, confirmarAbono,
@@ -1221,7 +1276,8 @@
             abrirEditarProducto, guardarEdicionProducto, eliminarProducto,
             verDetalleDeudor, iniciarAbonoDesdeDetalle, editarNombreDeudor,
             renderDeudores, renderInventarioList, renderHistorialVentas, renderHistorialCompras,
-            renderProducts
+            renderProducts,
+            editarItemCarrito, abrirModalCompra, guardarCompra
         };
     })();
     </script>
