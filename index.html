@@ -691,7 +691,8 @@
                     { fecha: '2026-06-16T15:30:00Z', cliente: 'Julian', desc: 'Galletas (Paquete) x1', total: 10000, estado: 'Fiado', metodo_pago: null },
                     { fecha: '2026-06-16T16:00:00Z', cliente: 'Santiago', desc: 'Combo Arepero x1', total: 15000, estado: 'Pagado', metodo_pago: 'Efectivo' }
                 ];
-                showToast('📱 Modo local (sin DB)');
+                showToast('📱 Error DB: ' + e.message);
+                alert('Ocurrió un error conectando a la base de datos: ' + e.message + '\nPor favor toma una captura de este mensaje.');
             }
         }
 
